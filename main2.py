@@ -229,12 +229,15 @@ class Menu(SubMenu):
             pos_init[1] = self.screen.get_height() - self.surf.get_height() - self.taille_ombre
 
         self.pos_init = pos_init[0], pos_init[1]
+        # 
+        # ToDo refaire le calcul sans passer par Mouse()
+        # 
         Mouse.set_pos(*self.pos_init)
         self.show = True
         self.index = -1
 
     def draw(self, mouse_pos):
-        if not self.show or len(self.liste_actions) == 0:
+        if not self.is_open() or len(self.liste_actions) == 0:
             return
 
         show_sub_menu = None
@@ -308,7 +311,7 @@ class Menu(SubMenu):
                 # Affichage du raccourci si existant
                 if action.raccourci == ">":
                     rac = self.fontsymbole.render(u"\u276F", True, couleur)
-                    if action.sub_menu.show:
+                    if action.sub_menu.is_open():
                         show_sub_menu = action.sub_menu
                 else:
                     rac = self.font24.render(action.raccourci, True, couleur)
@@ -325,7 +328,9 @@ class Menu(SubMenu):
                 (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
 
         if show_sub_menu:
-            show_sub_menu.draw(mouse_pos)
+            new_mouse_pos = Mouse.get_diff(*mouse_pos)
+            fprint("Sub mousePos:", mouse_pos, "/", new_mouse_pos)
+            show_sub_menu.draw(new_mouse_pos)
 
     def click(self):
         
@@ -337,9 +342,10 @@ class Menu(SubMenu):
                 # ------------------------
                 # ToDo Ouvrir le sous-Menu
                 # ------------------------
-                for action in self.liste_actions[self.index].sub_menu.liste_actions:
-                    fprint("-", action.libelle)
+                # for action in self.liste_actions[self.index].sub_menu.liste_actions:
+                #     fprint("-", action.libelle)
                 dx, dy = self.pos_init
+                fprint("activate submenu()")
                 self.liste_actions[self.index].sub_menu.activate(
                     (dx+self.surf.get_width()-8, 
                      dy+self.get_position_from_index(self.index)))
@@ -358,13 +364,14 @@ class Menu(SubMenu):
     def contains(self, position) -> bool:
         return self.surf.get_rect().collidepoint(position)
 
-    def is_open(self):
+    def is_open(self) -> bool:
         return self.show
 
     def close(self):
         self.show = False
         for action in self.liste_actions:
-            if action.sub_menu:
+            if action.sub_menu and action.sub_menu.is_open():
+                fprint("close submenu()")
                 action.sub_menu.close()
 
 
@@ -375,6 +382,8 @@ def end_run():
 def bloc_bleu(menu):
     if Variable.Menu == "bleu":
         return
+
+    menu.close()
 
     sub_menu = Menu()
     sub_menu.add(Action("Sous menu 1", "", "actif"))
