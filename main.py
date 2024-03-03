@@ -89,7 +89,7 @@ class Menu:
 
     font24: pygame.font.Font
     fontsymbole: pygame.font.Font
-    pos_init: tuple[int, int]
+    pos_init: tuple[int, ...]
 
     show: bool = False
     animation: bool = False
@@ -126,8 +126,8 @@ class Menu:
 
         lib = self.font24.render(f"{action.libelle}", True, (0, 0, 0))
         rac = self.font24.render(f"{action.raccourci}", True, (0, 0, 0))
-        width_lib, height = lib.get_size()
-        width_rac, height = rac.get_size()
+        width_lib, _ = lib.get_size()
+        width_rac, _ = rac.get_size()
 
         new_width: int
         if action.raccourci:
@@ -354,7 +354,7 @@ def bloc_bleu():
         return
 
     Menu.clear()
-    Menu.add(Action("Go to Definition(Jedi)", "Ctrl+Shift+G", "actif"))
+    Menu.add(Action("Go to Definition (Jedi)", "Ctrl+Shift+G", "actif"))
     Menu.add(Action("Find usage (Jedi)", "Alt+Shift+F", "actif"))
     Menu.add(Action("Show Docstring (Jedi)", "Ctrl+Alt+D", "actif"))
     Menu.add(Action("Show signature", "", "actif"))
@@ -416,8 +416,22 @@ def bloc_vert():
         return
 
     Menu.clear()
-    Menu.add(Action("Restaurer", "", "inactif"))
-    Menu.add(Action("Déplacer", "", "actif"))
+    Menu.add(Action("Show Unsaved Changes...", "", "actif"))
+    Menu.add(Action("", "", "separateur"))
+    Menu.add(Action("Cut", "Ctrl-X", "actif"))
+    Menu.add(Action("Copy", "Ctrl-C", "actif"))
+    Menu.add(Action("Paste", "Ctrl+V", "actif"))
+    Menu.add(Action("", "", "separateur"))
+    Menu.add(Action("Select All", "Ctrl+A", "actif"))
+    Menu.add(Action("", "", "separateur"))
+    Menu.add(Action("Open Git Repository...", "", "actif"))
+    Menu.add(Action("File History...", "", "actif"))
+    Menu.add(Action("Line History...", "", "actif"))
+    Menu.add(Action("Blame File...", "", "actif"))
+    Menu.add(Action("", "", "separateur"))
+    Menu.add(Action("Open Containing mother fucking Folder", "Cmd+x", "actif"))
+    Menu.add(Action("Copy File Path", "", "actif"))
+    Menu.add(Action("Reveal in Side Bar", "", "actif"))
     Menu.add(Action("", "", "separateur"))
     Menu.add(Action("Fermer", "", "actif", toggle, "vert"))
 
@@ -486,7 +500,7 @@ def toggle(couleur: str):
             Variable.Rouge = False
 
 
-def main():
+def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((1360, 820), flags=pygame.RESIZABLE + pygame.SRCALPHA)
 
@@ -495,7 +509,7 @@ def main():
     Menu.add(Action("Quitter", "Alt-F4", "actif", end_run))
     Menu.compute()
 
-    screen_size = screen.get_rect()
+    screen_size: pygame.Rect = screen.get_rect()
     clock = pygame.time.Clock()
 
     pos_x: int = 0
@@ -511,13 +525,21 @@ def main():
         screen.fill((50, 150, 100))
 
         if Variable.Bleu:
-            bleu = pygame.draw.rect(screen, "blue", (100, 200, 250, 400))
+            rect = pygame.Rect(100, 200, 250, 400)
+            pygame.draw.rect(screen, "black", rect.move(5, 5))
+            bleu = pygame.draw.rect(screen, "blue", rect)
         if Variable.Blanc:
-            blanc = pygame.draw.rect(screen, "white", (400, 200, 250, 300))
+            rect = pygame.Rect(400, 200, 250, 300)
+            pygame.draw.rect(screen, "black", rect.move(5, 5))
+            blanc = pygame.draw.rect(screen, "white", rect)
         if Variable.Rouge:
-            rouge = pygame.draw.rect(screen, "red", (700, 200, 250, 300))
+            rect = pygame.Rect(700, 200, 250, 300)
+            pygame.draw.rect(screen, "black", rect.move(5, 5))
+            rouge = pygame.draw.rect(screen, "red", rect)
         if Variable.Vert:
-            vert = pygame.draw.rect(screen, "green", (1000, 200, 300, 300))
+            rect = pygame.Rect(1000, 200, 300, 300)
+            pygame.draw.rect(screen, "black", rect.move(5, 5))
+            vert = pygame.draw.rect(screen, "green", rect)
 
         Menu.draw(Mouse.get_diff(pos_x, pos_y))
         pygame.display.update()

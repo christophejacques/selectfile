@@ -35,28 +35,40 @@ def fprint(*args, **kwargs):
     print(*args, **kwargs, flush=True)
 
 
+class SubMenu:
+    parent: object
+
+
 class Action:
     index: int
     libelle: str
     raccourci: str
     etat: str
-    fonction: Callable
+    fonction: Callable | None
+    sub_menu: SubMenu | None = None
 
     def __init__(self, 
             libelle: str,
             raccourci: str,
             etat: str,
-            fonction=None,
+            fonction_or_submenu=None,
             *args, 
             **kwargs):
 
         self.libelle = libelle
         self.raccourci = raccourci
         self.etat = etat.lower()
+        match raccourci.strip():
+            case ">":
+                self.fonction = None
+                self.sub_menu = fonction_or_submenu
+                self.sub_menu.parent = self
+                return
+
         if args:
-            part1 = partial(fonction, *args)
+            part1 = partial(fonction_or_submenu, *args)
         else:
-            part1 = fonction
+            part1 = fonction_or_submenu
 
         if kwargs:
             self.fonction = partial(part1, **kwargs)
@@ -74,7 +86,7 @@ class Action:
             self.fonction(*self.args, **self.kwargs)
 
 
-class Menu:
+class Menu(SubMenu):
     liste_actions: list[Action]
 
     screen: pygame.Surface
@@ -90,6 +102,8 @@ class Menu:
 
     show: bool = False
     animation: bool = False
+
+    parent: SubMenu | None = None
 
     index: int = -1
 
@@ -223,8 +237,12 @@ class Menu:
         if not self.show or len(self.liste_actions) == 0:
             return
 
+        show_sub_menu = None
+
+        # remplissage de la couleur de fond du menu
         self.surf.fill((240, 240, 240))
 
+        # Animation d'ouverture du menu
         if self.animation:
             # fprint("Menu.animation")
             self.alpha += 32
@@ -240,6 +258,7 @@ class Menu:
         # ligne vertical separant icone & texte
         pygame.draw.line(self.surf, 3*(191,), (self.goutiere_size, 2), (30, self.surf.get_height()-3))
 
+        # recherche de l'element selectionne dans le menu
         if (self.border_size < mouse_pos[1] < self.surf.get_height()-self.border_size and 
                 self.surf.get_rect().collidepoint(mouse_pos)):
 
@@ -254,6 +273,7 @@ class Menu:
                 case _:
                     self.surf.blit(self.selecta, (2, select_position))
         else:
+            # Aucun element de selectionne dans le menu
             self.index = -1
 
         dy: int = self.border_size
@@ -263,6 +283,7 @@ class Menu:
             else:
                 couleur = (132, 109, 155)
 
+            # Calcul de la position du libelle du menu a afficher
             lib = self.font24.render(action.libelle, True, couleur)
             _, height = lib.get_size()
             if action.etat == "separateur":
@@ -280,11 +301,15 @@ class Menu:
             else:
                 dy += self.select_size
 
+            # Ajout du libelle a la position calculee
             self.surf.blit(lib, (6+self.goutiere_size, dy-(self.select_size+height)//2))
 
             if action.raccourci:
+                # Affichage du raccourci si existant
                 if action.raccourci == ">":
                     rac = self.fontsymbole.render(u"\u276F", True, couleur)
+                    if action.sub_menu.show:
+                        show_sub_menu = action.sub_menu
                 else:
                     rac = self.font24.render(action.raccourci, True, couleur)
                 width, height = rac.get_size()
@@ -295,9 +320,12 @@ class Menu:
         self.screen.blits(
             ((self.surf, self.pos_init),
             (self.surfo1, 
-            (self.pos_init[0]+self.taille_ombre, self.pos_init[1]+self.surf.get_height())),
+                (self.pos_init[0]+self.taille_ombre, self.pos_init[1]+self.surf.get_height())),
             (self.surfo2, 
-            (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
+                (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
+
+        if show_sub_menu:
+            show_sub_menu.draw(mouse_pos)
 
     def click(self):
         
@@ -309,6 +337,13 @@ class Menu:
                 # ------------------------
                 # ToDo Ouvrir le sous-Menu
                 # ------------------------
+                for action in self.liste_actions[self.index].sub_menu.liste_actions:
+                    fprint("-", action.libelle)
+                dx, dy = self.pos_init
+                self.liste_actions[self.index].sub_menu.activate(
+                    (dx+self.surf.get_width()-8, 
+                     dy+self.get_position_from_index(self.index)))
+
                 return
 
         self.close()
@@ -328,6 +363,9 @@ class Menu:
 
     def close(self):
         self.show = False
+        for action in self.liste_actions:
+            if action.sub_menu:
+                action.sub_menu.close()
 
 
 def end_run():
@@ -337,6 +375,14 @@ def end_run():
 def bloc_bleu(menu):
     if Variable.Menu == "bleu":
         return
+
+    sub_menu = Menu()
+    sub_menu.add(Action("Sous menu 1", "", "actif"))
+    sub_menu.add(Action("Sous menu 2", "", "actif"))
+    sub_menu.add(Action("Sous menu 3", "", "actif"))
+    sub_menu.add(Action("", "", "separateur"))
+    sub_menu.add(Action("Sous menu 4", "", "actif"))
+    sub_menu.compute()
 
     menu.clear()
     menu.add(Action("Go to Definition(Jedi)", "Ctrl+Shift+G", "actif"))
@@ -357,7 +403,7 @@ def bloc_bleu(menu):
     menu.add(Action("Open Containing Folder", "", "actif"))
     menu.add(Action("Copy File Path", "", "actif"))
     menu.add(Action("Reveal in Side Bar", "", "actif"))
-    menu.add(Action("Behave Toolkit", ">", "actif"))
+    menu.add(Action("Behave Toolkit", ">", "actif", sub_menu))
     menu.add(Action("", "", "separateur"))
     menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
 
