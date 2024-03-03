@@ -34,7 +34,7 @@ class Mouse:
         return Mouse.pos_x - x, Mouse.pos_y - y
 
 
-def fprint(*args, **kwargs):
+def fprint(*args, **kwargs) -> None:
     print(*args, **kwargs, flush=True)
 
 
@@ -44,6 +44,8 @@ class Action:
     raccourci: str
     etat: str
     fonction: Callable
+    args: list
+    kwargs: dict
 
     def __init__(self, 
             libelle: str,
@@ -55,7 +57,7 @@ class Action:
 
         self.libelle = libelle
         self.raccourci = raccourci
-        self.etat = etat.lower()
+        self.set_etat(etat)
         if args:
             part1 = partial(fonction, *args)
         else:
@@ -69,11 +71,14 @@ class Action:
     def __str__(self):
         return f"{self.libelle!r} {self.raccourci!r} {self.etat}"
 
-    def set_index(self, index: int):
+    def set_index(self, index: int) -> None:
         self.index = index
 
-    def exec(self):
-        if self.fonction:
+    def set_etat(self, etat) -> None:
+        self.etat = etat.lower()
+
+    def exec(self) -> None:
+        if self.fonction is not None:
             self.fonction(*self.args, **self.kwargs)
 
 
@@ -106,7 +111,7 @@ class Menu:
     width: int
 
     @classmethod
-    def init(self, screen: pygame.Surface):
+    def init(self, screen: pygame.Surface) -> None:
         fprint("Menu.init")
         self.screen = screen
         self.font24 = pygame.font.SysFont("segoeuisemilight", 12)
@@ -134,7 +139,15 @@ class Menu:
             self.width = new_width
 
     @classmethod
-    def compute(self):
+    def get_action(self, libelle_action: str) -> Action:
+        for action in self.liste_actions:
+            if action.libelle.strip() == libelle_action.strip():
+                return action
+
+        raise Exception(f"Libelle Menu {libelle_action!r} non trouve.")
+
+    @classmethod
+    def compute(self) -> None:
         # doit etre execute apres clear() et add()
         # fprint("Menu.compute")
         self.height = (2 * self.border_size + 
@@ -207,7 +220,7 @@ class Menu:
         return idx
 
     @classmethod
-    def activate(self, mouse_pos: tuple[int, int]):
+    def activate(self, mouse_pos: tuple[int, int]) -> None:
         # fprint("activate Menu")
         self.animation = True
         self.alpha = 16
@@ -226,7 +239,7 @@ class Menu:
         self.index = -1
 
     @classmethod
-    def draw(self, mouse_pos):
+    def draw(self, mouse_pos) -> None:
         if not self.show or len(self.liste_actions) == 0:
             return
 
@@ -307,7 +320,7 @@ class Menu:
             (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
 
     @classmethod
-    def click(self):
+    def click(self) -> None:
         # fprint(self.index, "clicked")
         if self.index > -1:
             if self.liste_actions[self.index].etat in ["inactif", "separateur"]:
@@ -319,7 +332,7 @@ class Menu:
             return
 
         action = self.liste_actions[self.index]
-        if action.fonction:
+        if action.fonction is not None:
             action.fonction()
 
     @classmethod
@@ -327,19 +340,19 @@ class Menu:
         return self.surf.get_rect().collidepoint(position)
 
     @classmethod
-    def is_open(self):
+    def is_open(self) -> bool:
         return self.show
 
     @classmethod
-    def close(self):
+    def close(self) -> None:
         self.show = False
 
 
-def end_run():
+def end_run() -> None:
     Variable.Running = False
 
 
-def bloc_bleu():
+def bloc_bleu() -> None:
     if Variable.Menu == "bleu":
         return
 
@@ -362,7 +375,6 @@ def bloc_bleu():
     Menu.add(Action("Open Containing Folder", "", "actif"))
     Menu.add(Action("Copy File Path", "", "actif"))
     Menu.add(Action("Reveal in Side Bar", "", "actif"))
-    # Menu.add(Action("Behave Toolkit", ">", "actif"))
     Menu.add(Action("Behave Toolkit", ">", "actif"))
     Menu.add(Action("", "", "separateur"))
     Menu.add(Action("Fermer", "Ctrl-w", "actif", toggle, "bleu"))
@@ -372,7 +384,7 @@ def bloc_bleu():
     Variable.Menu = "bleu"
 
 
-def bloc_blanc():
+def bloc_blanc() -> None:
     if Variable.Menu == "blanc":
         return
 
@@ -389,7 +401,7 @@ def bloc_blanc():
     Variable.Menu = "blanc"
 
 
-def bloc_rouge():
+def bloc_rouge() -> None:
     if Variable.Menu == "rouge":
         return
 
@@ -403,7 +415,7 @@ def bloc_rouge():
     Variable.Menu = "rouge"
 
 
-def bloc_vert():
+def bloc_vert() -> None:
     if Variable.Menu == "vert":
         return
 
@@ -416,7 +428,7 @@ def bloc_vert():
     Menu.add(Action("", "", "separateur"))
     Menu.add(Action("Select All", "Ctrl+A", "actif"))
     Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Open Git Repository...", "", "actif"))
+    Menu.add(Action("Open Git Repository...", "", "inactif"))
     Menu.add(Action("File History...", "", "actif"))
     Menu.add(Action("Line History...", "", "actif"))
     Menu.add(Action("Blame File...", "", "actif"))
@@ -431,7 +443,7 @@ def bloc_vert():
     Variable.Menu = "vert"
 
 
-def no_bloc():
+def no_bloc() -> None:
     if Variable.Menu == "aucun":
         return
     separateur: bool = False
