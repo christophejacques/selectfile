@@ -4,9 +4,6 @@ from typing import Callable
 from functools import partial
 
 
-# for font in pygame.font.get_fonts():
-#     if "seg" in font:
-#         print(font)
 class Variable:
     Running = True
     Menu: str = ""
@@ -34,8 +31,12 @@ class Mouse:
         return Mouse.pos_x - x, Mouse.pos_y - y
 
 
-def fprint(*args, **kwargs) -> None:
+def fprint(*args, **kwargs):
     print(*args, **kwargs, flush=True)
+
+
+class SubMenu:
+    parent: object
 
 
 class Action:
@@ -43,25 +44,31 @@ class Action:
     libelle: str
     raccourci: str
     etat: str
-    fonction: Callable
-    args: list
-    kwargs: dict
+    fonction: Callable | None
+    sub_menu: SubMenu | None = None
 
     def __init__(self, 
             libelle: str,
             raccourci: str,
             etat: str,
-            fonction=None,
+            fonction_or_submenu=None,
             *args, 
             **kwargs):
 
         self.libelle = libelle
         self.raccourci = raccourci
-        self.set_etat(etat)
+        self.etat = etat.lower()
+        match raccourci.strip():
+            case ">":
+                self.fonction = None
+                self.sub_menu = fonction_or_submenu
+                self.sub_menu.parent = self
+                return
+
         if args:
-            part1 = partial(fonction, *args)
+            part1 = partial(fonction_or_submenu, *args)
         else:
-            part1 = fonction
+            part1 = fonction_or_submenu
 
         if kwargs:
             self.fonction = partial(part1, **kwargs)
@@ -71,18 +78,15 @@ class Action:
     def __str__(self):
         return f"{self.libelle!r} {self.raccourci!r} {self.etat}"
 
-    def set_index(self, index: int) -> None:
+    def set_index(self, index: int):
         self.index = index
 
-    def set_etat(self, etat) -> None:
-        self.etat = etat.lower()
-
-    def exec(self) -> None:
-        if self.fonction is not None:
+    def exec(self):
+        if self.fonction:
             self.fonction(*self.args, **self.kwargs)
 
 
-class Menu:
+class Menu(SubMenu):
     liste_actions: list[Action]
 
     screen: pygame.Surface
@@ -94,10 +98,12 @@ class Menu:
 
     font24: pygame.font.Font
     fontsymbole: pygame.font.Font
-    pos_init: tuple[int, ...]
+    pos_init: tuple[int, int]
 
     show: bool = False
     animation: bool = False
+
+    parent: SubMenu | None = None
 
     index: int = -1
 
@@ -111,28 +117,27 @@ class Menu:
     width: int
 
     @classmethod
-    def init(self, screen: pygame.Surface) -> None:
+    def init(self, screen: pygame.Surface):
         fprint("Menu.init")
         self.screen = screen
         self.font24 = pygame.font.SysFont("segoeuisemilight", 12)
         self.fontsymbole = pygame.font.SysFont("segoeui-symbol", 12)
 
+    def __init__(self):
         self.clear()
 
-    @classmethod
     def clear(self) -> None:
         self.width = self.min_width
         self.liste_actions = []
 
-    @classmethod
     def add(self, action: Action) -> None:
         action.set_index(len(self.liste_actions))
         self.liste_actions.append(action)
 
         lib = self.font24.render(f"{action.libelle}", True, (0, 0, 0))
         rac = self.font24.render(f"{action.raccourci}", True, (0, 0, 0))
-        width_lib, _ = lib.get_size()
-        width_rac, _ = rac.get_size()
+        width_lib, height = lib.get_size()
+        width_rac, height = rac.get_size()
 
         new_width: int
         if action.raccourci:
@@ -142,16 +147,7 @@ class Menu:
         if new_width > self.width:
             self.width = new_width
 
-    @classmethod
-    def get_action(self, libelle_action: str) -> Action:
-        for action in self.liste_actions:
-            if action.libelle.strip() == libelle_action.strip():
-                return action
-
-        raise Exception(f"Libelle Menu {libelle_action!r} non trouve.")
-
-    @classmethod
-    def compute(self) -> None:
+    def compute(self):
         # doit etre execute apres clear() et add()
         # fprint("Menu.compute")
         self.height = (2 * self.border_size + 
@@ -187,15 +183,12 @@ class Menu:
         pygame.draw.rect(self.selecti, 3*(128,), 
             (0, 0, *self.selecti.get_size()), width=1)
 
-    @classmethod
     def get_nb_actions(self) -> int:
         return len(list(filter(lambda x: x.etat != "separateur", self.liste_actions)))
 
-    @classmethod
     def get_nb_separateurs(self) -> int:
         return len(list(filter(lambda x: x.etat == "separateur", self.liste_actions)))
 
-    @classmethod
     def get_position_from_index(self, index: int) -> int:
         pos_y: int = 2
         for idx, action in enumerate(self.liste_actions):
@@ -209,7 +202,6 @@ class Menu:
 
         return -1
 
-    @classmethod
     def get_index(self, pos_y: int) -> int:
         max_y: int = 0
         for idx, action in enumerate(self.liste_actions):
@@ -223,8 +215,7 @@ class Menu:
 
         return idx
 
-    @classmethod
-    def activate(self, mouse_pos: tuple[int, int]) -> None:
+    def activate(self, mouse_pos: tuple[int, int]):
         # fprint("activate Menu")
         self.animation = True
         self.alpha = 16
@@ -238,17 +229,23 @@ class Menu:
             pos_init[1] = self.screen.get_height() - self.surf.get_height() - self.taille_ombre
 
         self.pos_init = pos_init[0], pos_init[1]
+        # 
+        # ToDo refaire le calcul sans passer par Mouse()
+        # 
         Mouse.set_pos(*self.pos_init)
         self.show = True
         self.index = -1
 
-    @classmethod
-    def draw(self, mouse_pos) -> None:
-        if not self.show or len(self.liste_actions) == 0:
+    def draw(self, mouse_pos):
+        if not self.is_open() or len(self.liste_actions) == 0:
             return
 
+        show_sub_menu = None
+
+        # remplissage de la couleur de fond du menu
         self.surf.fill((240, 240, 240))
 
+        # Animation d'ouverture du menu
         if self.animation:
             # fprint("Menu.animation")
             self.alpha += 32
@@ -264,6 +261,7 @@ class Menu:
         # ligne vertical separant icone & texte
         pygame.draw.line(self.surf, 3*(191,), (self.goutiere_size, 2), (30, self.surf.get_height()-3))
 
+        # recherche de l'element selectionne dans le menu
         if (self.border_size < mouse_pos[1] < self.surf.get_height()-self.border_size and 
                 self.surf.get_rect().collidepoint(mouse_pos)):
 
@@ -278,6 +276,7 @@ class Menu:
                 case _:
                     self.surf.blit(self.selecta, (2, select_position))
         else:
+            # Aucun element de selectionne dans le menu
             self.index = -1
 
         dy: int = self.border_size
@@ -287,6 +286,7 @@ class Menu:
             else:
                 couleur = (132, 109, 155)
 
+            # Calcul de la position du libelle du menu a afficher
             lib = self.font24.render(action.libelle, True, couleur)
             _, height = lib.get_size()
             if action.etat == "separateur":
@@ -304,11 +304,15 @@ class Menu:
             else:
                 dy += self.select_size
 
+            # Ajout du libelle a la position calculee
             self.surf.blit(lib, (6+self.goutiere_size, dy-(self.select_size+height)//2))
 
             if action.raccourci:
+                # Affichage du raccourci si existant
                 if action.raccourci == ">":
                     rac = self.fontsymbole.render(u"\u276F", True, couleur)
+                    if action.sub_menu.is_open():
+                        show_sub_menu = action.sub_menu
                 else:
                     rac = self.font24.render(action.raccourci, True, couleur)
                 width, height = rac.get_size()
@@ -319,13 +323,17 @@ class Menu:
         self.screen.blits(
             ((self.surf, self.pos_init),
             (self.surfo1, 
-            (self.pos_init[0]+self.taille_ombre, self.pos_init[1]+self.surf.get_height())),
+                (self.pos_init[0]+self.taille_ombre, self.pos_init[1]+self.surf.get_height())),
             (self.surfo2, 
-            (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
+                (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
 
-    @classmethod
-    def click(self) -> None:
-        # fprint(self.index, "clicked")
+        if show_sub_menu:
+            new_mouse_pos = Mouse.get_diff(*mouse_pos)
+            fprint("Sub mousePos:", mouse_pos, "/", new_mouse_pos)
+            show_sub_menu.draw(new_mouse_pos)
+
+    def click(self):
+        
         if self.index > -1:
             if self.liste_actions[self.index].etat in ["inactif", "separateur"]:
                 return
@@ -334,6 +342,14 @@ class Menu:
                 # ------------------------
                 # ToDo Ouvrir le sous-Menu
                 # ------------------------
+                # for action in self.liste_actions[self.index].sub_menu.liste_actions:
+                #     fprint("-", action.libelle)
+                dx, dy = self.pos_init
+                fprint("activate submenu()")
+                self.liste_actions[self.index].sub_menu.activate(
+                    (dx+self.surf.get_width()-8, 
+                     dy+self.get_position_from_index(self.index)))
+
                 return
 
         self.close()
@@ -342,151 +358,148 @@ class Menu:
             return
 
         action = self.liste_actions[self.index]
-        if action.fonction is not None:
+        if action.fonction:
             action.fonction()
 
-    @classmethod
     def contains(self, position) -> bool:
         return self.surf.get_rect().collidepoint(position)
 
-    @classmethod
     def is_open(self) -> bool:
         return self.show
 
-    @classmethod
-    def close(self) -> None:
+    def close(self):
         self.show = False
+        for action in self.liste_actions:
+            if action.sub_menu and action.sub_menu.is_open():
+                fprint("close submenu()")
+                action.sub_menu.close()
 
 
-def end_run() -> None:
+def end_run():
     Variable.Running = False
 
 
-def bloc_bleu() -> None:
+def bloc_bleu(menu):
     if Variable.Menu == "bleu":
         return
 
-    Menu.clear()
-    Menu.add(Action("Go to Definition (Jedi)", "Ctrl+Shift+G", "actif"))
-    Menu.add(Action("Find usage (Jedi)", "Alt+Shift+F", "actif"))
-    Menu.add(Action("Show Docstring (Jedi)", "Ctrl+Alt+D", "actif"))
-    Menu.add(Action("Show signature", "", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Show Diff Hunk", "", "actif"))
-    Menu.add(Action("Revert Diff Hunk", "", "actif"))
-    Menu.add(Action("Show Unsaved Changed", "", "inactif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Cut", "Ctrl+X", "actif"))
-    Menu.add(Action("Copy", "Ctrl+C", "actif"))
-    Menu.add(Action("Paste", "Ctrl+V", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Select All", "Ctrl+A", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Open Containing Folder", "", "actif"))
-    Menu.add(Action("Copy File Path", "", "actif"))
-    Menu.add(Action("Reveal in Side Bar", "", "actif"))
-    Menu.add(Action("Behave Toolkit", ">", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
+    menu.close()
 
-    Menu.compute()
+    sub_menu = Menu()
+    sub_menu.add(Action("Sous menu 1", "", "actif"))
+    sub_menu.add(Action("Sous menu 2", "", "actif"))
+    sub_menu.add(Action("Sous menu 3", "", "actif"))
+    sub_menu.add(Action("", "", "separateur"))
+    sub_menu.add(Action("Sous menu 4", "", "actif"))
+    sub_menu.compute()
+
+    menu.clear()
+    menu.add(Action("Go to Definition(Jedi)", "Ctrl+Shift+G", "actif"))
+    menu.add(Action("Find usage (Jedi)", "Alt+Shift+F", "actif"))
+    menu.add(Action("Show Docstring (Jedi)", "Ctrl+Alt+D", "actif"))
+    menu.add(Action("Show signature", "", "actif"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Show Diff Hunk", "", "actif"))
+    menu.add(Action("Revert Diff Hunk", "", "actif"))
+    menu.add(Action("Show Unsaved Changed", "", "inactif"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Cut", "Ctrl+X", "actif"))
+    menu.add(Action("Copy", "Ctrl+C", "actif"))
+    menu.add(Action("Paste", "Ctrl+V", "actif"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Select All", "Ctrl+A", "actif"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Open Containing Folder", "", "actif"))
+    menu.add(Action("Copy File Path", "", "actif"))
+    menu.add(Action("Reveal in Side Bar", "", "actif"))
+    menu.add(Action("Behave Toolkit", ">", "actif", sub_menu))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
+
+    menu.compute()
     Variable.Menu = "bleu"
 
 
-def bloc_blanc() -> None:
+def bloc_blanc(menu):
     if Variable.Menu == "blanc":
         return
 
-    Menu.clear()
-    Menu.add(Action("Restaurer", "", "inactif"))
-    Menu.add(Action("Déplacer", "", "inactif"))
-    Menu.add(Action("Taille", "", "actif"))
-    Menu.add(Action("Réduire", "", "actif"))
-    Menu.add(Action("Agrandir", "", "actif", print, "Agridissement"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "blanc"))
+    menu.clear()
+    menu.add(Action("Restaurer", "", "inactif"))
+    menu.add(Action("Déplacer", "", "inactif"))
+    menu.add(Action("Taille", "", "actif"))
+    menu.add(Action("Réduire", "", "actif"))
+    menu.add(Action("Agrandir", "", "actif", print, "Agridissement"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "blanc"))
 
-    Menu.compute()
+    menu.compute()
     Variable.Menu = "blanc"
 
 
-def bloc_rouge() -> None:
+def bloc_rouge(menu):
     if Variable.Menu == "rouge":
         return
 
-    Menu.clear()
-    Menu.add(Action("Restaurer", "", "inactif"))
-    Menu.add(Action("Déplacer", "", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "rouge"))
+    menu.clear()
+    menu.add(Action("Restaurer", "", "inactif"))
+    menu.add(Action("Déplacer", "", "actif"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "rouge"))
 
-    Menu.compute()
+    menu.compute()
     Variable.Menu = "rouge"
 
 
-def bloc_vert() -> None:
+def bloc_vert(menu):
     if Variable.Menu == "vert":
         return
 
-    Menu.clear()
-    Menu.add(Action("Show Unsaved Changes...", "", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Cut", "Ctrl-X", "actif"))
-    Menu.add(Action("Copy", "Ctrl-C", "actif"))
-    Menu.add(Action("Paste", "Ctrl+V", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Select All", "Ctrl+A", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Open Git Repository...", "", "inactif"))
-    Menu.add(Action("File History...", "", "actif"))
-    Menu.add(Action("Line History...", "", "actif"))
-    Menu.add(Action("Blame File...", "", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Open Containing mother fucking Folder", "Cmd+x", "actif"))
-    Menu.add(Action("Copy File Path", "", "actif"))
-    Menu.add(Action("Reveal in Side Bar", "", "actif"))
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Fermer", "", "actif", toggle, "vert"))
+    menu.clear()
+    menu.add(Action("Restaurer", "", "inactif"))
+    menu.add(Action("Déplacer", "", "actif"))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Fermer", "", "actif", toggle, "vert"))
 
-    Menu.compute()
+    menu.compute()
     Variable.Menu = "vert"
 
 
-def no_bloc() -> None:
+def no_bloc(menu):
     if Variable.Menu == "aucun":
         return
     separateur: bool = False
-    Menu.clear()
+    menu.clear()
     nb_fermer: int = 0
     if not Variable.Bleu:
-        Menu.add(Action("Ouvrir Bleu", "", "actif", toggle, "bleu"))
+        menu.add(Action("Ouvrir Bleu", "", "actif", toggle, "bleu"))
         separateur = True
         nb_fermer += 1
     if not Variable.Blanc:
-        Menu.add(Action("Ouvrir Blanc", "", "actif", toggle, "blanc"))
+        menu.add(Action("Ouvrir Blanc", "", "actif", toggle, "blanc"))
         separateur = True
         nb_fermer += 1
     if not Variable.Rouge:
-        Menu.add(Action("Ouvrir Rouge", "", "actif", toggle, "rouge"))
+        menu.add(Action("Ouvrir Rouge", "", "actif", toggle, "rouge"))
         separateur = True
         nb_fermer += 1
     if not Variable.Vert:
-        Menu.add(Action("Ouvrir Vert", "", "actif", toggle, "vert"))
+        menu.add(Action("Ouvrir Vert", "", "actif", toggle, "vert"))
         separateur = True
         nb_fermer += 1
 
     if separateur:
-        Menu.add(Action("", "", "separateur"))
+        menu.add(Action("", "", "separateur"))
 
     if separateur:
-        Menu.add(Action("Ouvrir Tout", "", "actif", toggle, "open"))
+        menu.add(Action("Ouvrir Tout", "", "actif", toggle, "open"))
     if nb_fermer != 4:
-        Menu.add(Action("Fermer Tout", "Ctrl+Shift+w", "actif", toggle, "close"))
+        menu.add(Action("Fermer Tout", "Ctrl+Shift+w", "actif", toggle, "close"))
 
-    Menu.add(Action("", "", "separateur"))
-    Menu.add(Action("Quitter", "Alt-F4", "actif", end_run))
+    menu.add(Action("", "", "separateur"))
+    menu.add(Action("Quitter", "Alt-F4", "actif", end_run))
 
-    Menu.compute()
+    menu.compute()
     Variable.Menu = "aucun"
 
 
@@ -513,16 +526,18 @@ def toggle(couleur: str):
             Variable.Rouge = False
 
 
-def main() -> None:
+def main():
     pygame.init()
     screen = pygame.display.set_mode((1360, 820), flags=pygame.RESIZABLE + pygame.SRCALPHA)
 
     Menu.init(screen)
-    Menu.add(Action("Fermer", "Ctrl-w", "actif", end_run))
-    Menu.add(Action("Quitter", "Alt-F4", "actif", end_run))
-    Menu.compute()
 
-    screen_size: pygame.Rect = screen.get_rect()
+    menu = Menu()
+    menu.add(Action("Fermer", "Ctrl-w", "actif", end_run))
+    menu.add(Action("Quitter", "Alt-F4", "actif", end_run))
+    menu.compute()
+
+    screen_size = screen.get_rect()
     clock = pygame.time.Clock()
 
     pos_x: int = 0
@@ -538,23 +553,15 @@ def main() -> None:
         screen.fill((50, 150, 100))
 
         if Variable.Bleu:
-            rect = pygame.Rect(100, 200, 250, 400)
-            pygame.draw.rect(screen, "black", rect.move(5, 5))
-            bleu = pygame.draw.rect(screen, "blue", rect)
+            bleu = pygame.draw.rect(screen, "blue", (100, 200, 250, 400))
         if Variable.Blanc:
-            rect = pygame.Rect(400, 200, 250, 300)
-            pygame.draw.rect(screen, "black", rect.move(5, 5))
-            blanc = pygame.draw.rect(screen, "white", rect)
+            blanc = pygame.draw.rect(screen, "white", (400, 200, 250, 300))
         if Variable.Rouge:
-            rect = pygame.Rect(700, 200, 250, 300)
-            pygame.draw.rect(screen, "black", rect.move(5, 5))
-            rouge = pygame.draw.rect(screen, "red", rect)
+            rouge = pygame.draw.rect(screen, "red", (700, 200, 250, 300))
         if Variable.Vert:
-            rect = pygame.Rect(1000, 200, 300, 300)
-            pygame.draw.rect(screen, "black", rect.move(5, 5))
-            vert = pygame.draw.rect(screen, "green", rect)
+            vert = pygame.draw.rect(screen, "green", (1000, 200, 300, 300))
 
-        Menu.draw(Mouse.get_diff(pos_x, pos_y))
+        menu.draw(Mouse.get_diff(pos_x, pos_y))
         pygame.display.update()
 
         for event in pygame.event.get():
@@ -564,8 +571,8 @@ def main() -> None:
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if Menu.is_open():
-                        Menu.close()
+                    if menu.is_open():
+                        menu.close()
                     else:
                         Variable.Running = False
 
@@ -577,23 +584,23 @@ def main() -> None:
 
             elif event.type in [pygame.MOUSEBUTTONUP]:
 
-                if Menu.is_open() and (event.button == 1 or 
-                        Menu.contains(Mouse.get_diff(pos_x, pos_y))):
-                    Menu.click()
+                if menu.is_open() and (event.button == 1 or 
+                        menu.contains(Mouse.get_diff(pos_x, pos_y))):
+                    menu.click()
 
                 elif event.button == 3:
                     if Variable.Bleu and bleu.collidepoint(Mouse.get_pos()):
-                        bloc_bleu()
+                        bloc_bleu(menu)
                     elif Variable.Blanc and blanc.collidepoint(Mouse.get_pos()):
-                        bloc_blanc()
+                        bloc_blanc(menu)
                     elif Variable.Rouge and rouge.collidepoint(Mouse.get_pos()):
-                        bloc_rouge()
+                        bloc_rouge(menu)
                     elif Variable.Vert and vert.collidepoint(Mouse.get_pos()):
-                        bloc_vert()
+                        bloc_vert(menu)
                     else:
-                        no_bloc()
+                        no_bloc(menu)
 
-                    Menu.activate(Mouse.get_pos())
+                    menu.activate(Mouse.get_pos())
                     pos_x, pos_y = Mouse.get_pos()
 
             elif event.type in [pygame.MOUSEBUTTONDOWN]:
