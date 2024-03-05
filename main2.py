@@ -1,7 +1,8 @@
 import pygame
 
-from typing import Callable
+from typing import Callable, Union
 from functools import partial
+import time
 
 
 class Variable:
@@ -18,17 +19,27 @@ class Mouse:
     pos_y: int = 0
 
     @classmethod
-    def set_pos(self, x: int, y: int) -> None:
-        Mouse.pos_x = x
-        Mouse.pos_y = y
+    def set_pos(self, x_or_coord: Union[int, tuple, list], y: int | None = None) -> None:
+        if isinstance(x_or_coord, int) and y is not None:
+            Mouse.pos_x = x_or_coord
+            Mouse.pos_y = y
+
+        elif type(x_or_coord) in [tuple, list]:
+            Mouse.pos_x, Mouse.pos_y = x_or_coord
 
     @classmethod
     def get_pos(self) -> tuple[int, int]:
         return Mouse.pos_x, Mouse.pos_y
 
     @classmethod
-    def get_diff(self, x: int, y: int) -> tuple[int, int]:
-        return Mouse.pos_x - x, Mouse.pos_y - y
+    def get_diff(self, x_or_coord: int | tuple | list, y: int | None = None) -> tuple[int, int]:
+        if isinstance(x_or_coord, int) and y is not None:
+            return Mouse.pos_x - x_or_coord, Mouse.pos_y - y
+
+        if type(x_or_coord) in [tuple, list]:
+            return Mouse.pos_x - x_or_coord[0], Mouse.pos_y - x_or_coord[1]  # type: ignore[index]
+
+        raise Exception("Le type des parametres n'est pas correct.")
 
 
 def fprint(*args, **kwargs):
@@ -98,7 +109,7 @@ class Menu(SubMenu):
 
     font24: pygame.font.Font
     fontsymbole: pygame.font.Font
-    pos_init: tuple[int, int]
+    pos_init: tuple[int, int] = (0, 0)
 
     show: bool = False
     animation: bool = False
@@ -106,6 +117,7 @@ class Menu(SubMenu):
     parent: SubMenu | None = None
 
     index: int = -1
+    old_index: int = -1
 
     alpha: int = 0
     goutiere_size: int = 30
@@ -217,6 +229,7 @@ class Menu(SubMenu):
 
     def activate(self, mouse_pos: tuple[int, int]):
         # fprint("activate Menu")
+        self.close()
         self.animation = True
         self.alpha = 16
 
@@ -232,11 +245,12 @@ class Menu(SubMenu):
         # 
         # ToDo refaire le calcul sans passer par Mouse()
         # 
-        Mouse.set_pos(*self.pos_init)
         self.show = True
         self.index = -1
+        self.old_index = -1
+        self.time_for_action = 0
 
-    def draw(self, mouse_pos):
+    def draw(self, mouse_pos) -> None:
         if not self.is_open() or len(self.liste_actions) == 0:
             return
 
@@ -258,7 +272,7 @@ class Menu(SubMenu):
         # Bords du menu
         pygame.draw.rect(self.surf, 3*(151,), self.surf.get_rect(), width=1)
 
-        # ligne vertical separant icone & texte
+        # ligne vertical a gauche separant icone & texte
         pygame.draw.line(self.surf, 3*(191,), (self.goutiere_size, 2), (30, self.surf.get_height()-3))
 
         # recherche de l'element selectionne dans le menu
@@ -269,15 +283,39 @@ class Menu(SubMenu):
             select_position = self.get_position_from_index(self.index)
 
             match self.liste_actions[self.index].etat:
-                case "separateur":
-                    pass
+                case "actif":
+                    self.surf.blit(self.selecta, (2, select_position))
                 case "inactif":
                     self.surf.blit(self.selecti, (2, select_position))
-                case _:
-                    self.surf.blit(self.selecta, (2, select_position))
+
         else:
             # Aucun element de selectionne dans le menu
             self.index = -1
+
+        # gestion de l'ouverture/fermeture automatique des sous-menus
+        if self.index != self.old_index:
+            self.old_index = self.index
+            # fprint("index changed", self.index)
+            if (self.liste_actions[self.index].sub_menu and 
+                    not self.liste_actions[self.index].sub_menu.is_open()):
+                self.time_for_action = 30
+
+            elif self.is_sub_menu_open() and self.time_for_action == 0:
+                self.time_for_action = 30
+
+        else:
+            if self.time_for_action == 1:
+                self.time_for_action = 0
+                # fprint("Action => Open SubMenu")
+                if self.liste_actions[self.index].sub_menu:
+                    if not self.liste_actions[self.index].sub_menu.is_open():
+                        self.click()
+
+                elif self.is_sub_menu_open():
+                    self.close_sub_menu()
+
+            elif self.time_for_action > 0:
+                self.time_for_action -= 1
 
         dy: int = self.border_size
         for idx, action in enumerate(self.liste_actions):
@@ -309,17 +347,20 @@ class Menu(SubMenu):
 
             if action.raccourci:
                 # Affichage du raccourci si existant
-                if action.raccourci == ">":
+                if action.sub_menu:
                     rac = self.fontsymbole.render(u"\u276F", True, couleur)
                     if action.sub_menu.is_open():
                         show_sub_menu = action.sub_menu
                 else:
                     rac = self.font24.render(action.raccourci, True, couleur)
+
                 width, height = rac.get_size()
+                # Ajout du raccourci a la position calculee
                 self.surf.blit(rac, 
                     (self.surf.get_width()-16-width, 
-                        dy-(self.select_size+height)//2))
+                     dy-(self.select_size+height)//2))
             
+        # Ajout de la surface du menu + les 2 ombres (bas et droite)
         self.screen.blits(
             ((self.surf, self.pos_init),
             (self.surfo1, 
@@ -328,8 +369,7 @@ class Menu(SubMenu):
                 (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
 
         if show_sub_menu:
-            new_mouse_pos = Mouse.get_diff(*mouse_pos)
-            fprint("Sub mousePos:", mouse_pos, "/", new_mouse_pos)
+            new_mouse_pos: tuple = Mouse.get_diff(show_sub_menu.pos_init)
             show_sub_menu.draw(new_mouse_pos)
 
     def click(self):
@@ -339,18 +379,23 @@ class Menu(SubMenu):
                 return
 
             if self.liste_actions[self.index].raccourci == ">":
-                # ------------------------
-                # ToDo Ouvrir le sous-Menu
-                # ------------------------
-                # for action in self.liste_actions[self.index].sub_menu.liste_actions:
-                #     fprint("-", action.libelle)
+                # Sous-menu
+                if self.liste_actions[self.index].sub_menu.is_open():
+                    return
+
                 dx, dy = self.pos_init
-                fprint("activate submenu()")
                 self.liste_actions[self.index].sub_menu.activate(
                     (dx+self.surf.get_width()-8, 
                      dy+self.get_position_from_index(self.index)))
 
                 return
+
+        else:
+            for action in self.liste_actions:
+                if action.sub_menu:
+                    if action.sub_menu.contains(Mouse.get_diff(action.sub_menu.pos_init)):
+                        action.sub_menu.click()
+                        break
 
         self.close()
 
@@ -367,11 +412,25 @@ class Menu(SubMenu):
     def is_open(self) -> bool:
         return self.show
 
+    def is_sub_menu_open(self) -> bool:
+        for action in self.liste_actions:
+            if action.sub_menu and action.sub_menu.is_open():
+                return True
+
+        return False
+
+    def close_sub_menu(self):
+        for action in self.liste_actions:
+            if action.sub_menu and action.sub_menu.is_open():
+                action.sub_menu.close()
+
     def close(self):
+        if not self.is_open():
+            return 
+
         self.show = False
         for action in self.liste_actions:
             if action.sub_menu and action.sub_menu.is_open():
-                fprint("close submenu()")
                 action.sub_menu.close()
 
 
@@ -379,18 +438,18 @@ def end_run():
     Variable.Running = False
 
 
-def bloc_bleu(menu):
+def bloc_bleu(menu) -> None:
     if Variable.Menu == "bleu":
         return
 
     menu.close()
 
     sub_menu = Menu()
-    sub_menu.add(Action("Sous menu 1", "", "actif"))
+    sub_menu.add(Action("Sous menu 1", "", "actif", print, "Sous menu 1"))
     sub_menu.add(Action("Sous menu 2", "", "actif"))
     sub_menu.add(Action("Sous menu 3", "", "actif"))
     sub_menu.add(Action("", "", "separateur"))
-    sub_menu.add(Action("Sous menu 4", "", "actif"))
+    sub_menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
     sub_menu.compute()
 
     menu.clear()
@@ -420,7 +479,7 @@ def bloc_bleu(menu):
     Variable.Menu = "bleu"
 
 
-def bloc_blanc(menu):
+def bloc_blanc(menu) -> None:
     if Variable.Menu == "blanc":
         return
 
@@ -437,7 +496,7 @@ def bloc_blanc(menu):
     Variable.Menu = "blanc"
 
 
-def bloc_rouge(menu):
+def bloc_rouge(menu) -> None:
     if Variable.Menu == "rouge":
         return
 
@@ -451,7 +510,7 @@ def bloc_rouge(menu):
     Variable.Menu = "rouge"
 
 
-def bloc_vert(menu):
+def bloc_vert(menu) -> None:
     if Variable.Menu == "vert":
         return
 
@@ -465,9 +524,10 @@ def bloc_vert(menu):
     Variable.Menu = "vert"
 
 
-def no_bloc(menu):
+def no_bloc(menu) -> None:
     if Variable.Menu == "aucun":
         return
+
     separateur: bool = False
     menu.clear()
     nb_fermer: int = 0
@@ -503,7 +563,8 @@ def no_bloc(menu):
     Variable.Menu = "aucun"
 
 
-def toggle(couleur: str):
+def toggle(couleur: str) -> None:
+
     Variable.Menu = ""
     match couleur.lower():
         case "bleu":
@@ -526,16 +587,13 @@ def toggle(couleur: str):
             Variable.Rouge = False
 
 
-def main():
+def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((1360, 820), flags=pygame.RESIZABLE + pygame.SRCALPHA)
 
     Menu.init(screen)
-
     menu = Menu()
-    menu.add(Action("Fermer", "Ctrl-w", "actif", end_run))
-    menu.add(Action("Quitter", "Alt-F4", "actif", end_run))
-    menu.compute()
+    no_bloc(menu)
 
     screen_size = screen.get_rect()
     clock = pygame.time.Clock()
@@ -561,7 +619,7 @@ def main():
         if Variable.Vert:
             vert = pygame.draw.rect(screen, "green", (1000, 200, 300, 300))
 
-        menu.draw(Mouse.get_diff(pos_x, pos_y))
+        menu.draw(Mouse.get_diff(menu.pos_init))
         pygame.display.update()
 
         for event in pygame.event.get():
@@ -585,7 +643,7 @@ def main():
             elif event.type in [pygame.MOUSEBUTTONUP]:
 
                 if menu.is_open() and (event.button == 1 or 
-                        menu.contains(Mouse.get_diff(pos_x, pos_y))):
+                        menu.contains(Mouse.get_diff(menu.pos_init))):
                     menu.click()
 
                 elif event.button == 3:
