@@ -2,7 +2,7 @@ import pygame
 
 from typing import Callable, Union
 from functools import partial
-import time
+# import time
 
 
 class Variable:
@@ -25,7 +25,7 @@ class Mouse:
             Mouse.pos_y = y
 
         elif type(x_or_coord) in [tuple, list]:
-            Mouse.pos_x, Mouse.pos_y = x_or_coord
+            Mouse.pos_x, Mouse.pos_y = x_or_coord  # type: ignore[misc]
 
     @classmethod
     def get_pos(self) -> tuple[int, int]:
@@ -48,6 +48,13 @@ def fprint(*args, **kwargs):
 
 class SubMenu:
     parent: object
+    sub_menu: object
+    opened_sub_menu: object
+
+    pos_init: tuple
+
+    draw: Callable
+    is_open: Callable
 
 
 class Action:
@@ -56,7 +63,7 @@ class Action:
     raccourci: str
     etat: str
     fonction: Callable | None
-    sub_menu: SubMenu | None = None
+    sub_menu: SubMenu = None
 
     def __init__(self, 
             libelle: str,
@@ -73,7 +80,6 @@ class Action:
             case ">":
                 self.fonction = None
                 self.sub_menu = fonction_or_submenu
-                self.sub_menu.parent = self
                 return
 
         if args:
@@ -92,12 +98,19 @@ class Action:
     def set_index(self, index: int):
         self.index = index
 
+    def set_sub_menu_parent(self, parent):
+        self.sub_menu.parent = parent
+
+    def is_sub_menu(self) -> bool:
+        return self.raccourci == ">"
+
     def exec(self):
         if self.fonction:
             self.fonction(*self.args, **self.kwargs)
 
 
 class Menu(SubMenu):
+    titre: str
     liste_actions: list[Action]
 
     screen: pygame.Surface
@@ -115,6 +128,7 @@ class Menu(SubMenu):
     animation: bool = False
 
     parent: SubMenu | None = None
+    opened_sub_menu: SubMenu 
 
     index: int = -1
     old_index: int = -1
@@ -135,7 +149,10 @@ class Menu(SubMenu):
         self.font24 = pygame.font.SysFont("segoeuisemilight", 12)
         self.fontsymbole = pygame.font.SysFont("segoeui-symbol", 12)
 
-    def __init__(self):
+    def __init__(self, titre: str = ""):
+        self.titre = titre
+        self.time_for_action = 0
+        self.opened_sub_menu = None
         self.clear()
 
     def clear(self) -> None:
@@ -144,7 +161,6 @@ class Menu(SubMenu):
 
     def add(self, action: Action) -> None:
         action.set_index(len(self.liste_actions))
-        self.liste_actions.append(action)
 
         lib = self.font24.render(f"{action.libelle}", True, (0, 0, 0))
         rac = self.font24.render(f"{action.raccourci}", True, (0, 0, 0))
@@ -154,10 +170,15 @@ class Menu(SubMenu):
         new_width: int
         if action.raccourci:
             new_width = 6+3*self.goutiere_size + self.border_size + 10 + width_lib + width_rac 
+            # if action.raccourci == ">":
+            if action.is_sub_menu():
+                action.set_sub_menu_parent(self)
         else:
             new_width = 6+self.goutiere_size + self.border_size + 10 + width_lib + 16
         if new_width > self.width:
             self.width = new_width
+
+        self.liste_actions.append(action)
 
     def compute(self):
         # doit etre execute apres clear() et add()
@@ -229,7 +250,10 @@ class Menu(SubMenu):
 
     def activate(self, mouse_pos: tuple[int, int]):
         # fprint("activate Menu")
+
+        # Ferme les potentiels Menu et Sous-menus deja ouverts
         self.close()
+
         self.animation = True
         self.alpha = 16
 
@@ -250,11 +274,13 @@ class Menu(SubMenu):
         self.old_index = -1
         self.time_for_action = 0
 
+        if self.parent:
+            # fprint("parent.submenu=self", self.parent, self.titre)
+            self.parent.opened_sub_menu = self
+
     def draw(self, mouse_pos) -> None:
         if not self.is_open() or len(self.liste_actions) == 0:
             return
-
-        show_sub_menu = None
 
         # remplissage de la couleur de fond du menu
         self.surf.fill((240, 240, 240))
@@ -279,6 +305,9 @@ class Menu(SubMenu):
         if (self.border_size < mouse_pos[1] < self.surf.get_height()-self.border_size and 
                 self.surf.get_rect().collidepoint(mouse_pos)):
 
+            # 
+            # ToDo : a deplacer pour prendre en compte le sous-menu
+            # 
             self.index = self.get_index(mouse_pos[1])
             select_position = self.get_position_from_index(self.index)
 
@@ -294,21 +323,33 @@ class Menu(SubMenu):
 
         # gestion de l'ouverture/fermeture automatique des sous-menus
         if self.index != self.old_index:
-            self.old_index = self.index
-            # fprint("index changed", self.index)
+
+            if (self.index == -1 and self.old_index >= 0 and 
+                    self.liste_actions[self.old_index].sub_menu and
+                    self.liste_actions[self.old_index].sub_menu.is_open()):
+                # Force la selection du Sous-Menu
+                self.index = self.old_index
+            else:
+                self.old_index = self.index
+                
             if (self.liste_actions[self.index].sub_menu and 
                     not self.liste_actions[self.index].sub_menu.is_open()):
-                self.time_for_action = 30
+                # Mise a jour du timer pour l'ouverture auto
+                self.time_for_action = 20
 
             elif self.is_sub_menu_open() and self.time_for_action == 0:
-                self.time_for_action = 30
+                # Mise a jour du timer pour la fermeture auto
+                self.time_for_action = 20
 
         else:
+            # Gestion du timer pour les actions auto
             if self.time_for_action == 1:
+                # Action automatique a executer
                 self.time_for_action = 0
-                # fprint("Action => Open SubMenu")
                 if self.liste_actions[self.index].sub_menu:
                     if not self.liste_actions[self.index].sub_menu.is_open():
+                        # Ouverture du sub_menu et fermeture du precedent si besoin
+                        self.close_sub_menu()
                         self.click()
 
                 elif self.is_sub_menu_open():
@@ -349,8 +390,8 @@ class Menu(SubMenu):
                 # Affichage du raccourci si existant
                 if action.sub_menu:
                     rac = self.fontsymbole.render(u"\u276F", True, couleur)
-                    if action.sub_menu.is_open():
-                        show_sub_menu = action.sub_menu
+                    # if action.sub_menu.is_open():
+                    #     self.opened_sub_menu = action.sub_menu
                 else:
                     rac = self.font24.render(action.raccourci, True, couleur)
 
@@ -368,21 +409,32 @@ class Menu(SubMenu):
             (self.surfo2, 
                 (self.pos_init[0]+self.surf.get_width(), self.taille_ombre+self.pos_init[1]))))
 
-        if show_sub_menu:
-            new_mouse_pos: tuple = Mouse.get_diff(show_sub_menu.pos_init)
-            show_sub_menu.draw(new_mouse_pos)
+        # Affichage du sous-menu ouvert si besoin
+        if self.opened_sub_menu:
+            new_mouse_pos: tuple = Mouse.get_diff(self.opened_sub_menu.pos_init)
+            self.opened_sub_menu.draw(new_mouse_pos)
 
     def click(self):
-        
+        # fprint(">", f"{self.titre}({self.index})", self.liste_actions[self.index].etat)
         if self.index > -1:
+            # fprint(f"1-{self.titre}({self.index})")
             if self.liste_actions[self.index].etat in ["inactif", "separateur"]:
                 return
 
-            if self.liste_actions[self.index].raccourci == ">":
+            # fprint(f"2-{self.titre}({self.index})", self.liste_actions[self.index].raccourci)
+            # if self.liste_actions[self.index].raccourci == ">":
+            if self.liste_actions[self.index].is_sub_menu():
                 # Sous-menu
+                # fprint(f"3-{self.titre}({self.index})")
                 if self.liste_actions[self.index].sub_menu.is_open():
-                    return
+                    # fprint(f"4-{self.titre}({self.index})", self.liste_actions[self.index].sub_menu.index)
+                    if self.liste_actions[self.index].sub_menu.click() == "CLOSE":
+                        self.close()
+                        return "CLOSE"
+                    else:
+                        return
 
+                # fprint(f"5-{self.titre}({self.index}) (activate submenu)")
                 dx, dy = self.pos_init
                 self.liste_actions[self.index].sub_menu.activate(
                     (dx+self.surf.get_width()-8, 
@@ -390,21 +442,25 @@ class Menu(SubMenu):
 
                 return
 
-        else:
-            for action in self.liste_actions:
-                if action.sub_menu:
-                    if action.sub_menu.contains(Mouse.get_diff(action.sub_menu.pos_init)):
-                        action.sub_menu.click()
-                        break
-
         self.close()
 
+        # fprint(f"6-{self.titre}({self.index}) (CLOSE)")
         if self.index < 0:
-            return
+            return "CLOSE"
 
+        # fprint(f"7-{self.titre}({self.index}) (FUNCTION?)")
         action = self.liste_actions[self.index]
         if action.fonction:
             action.fonction()
+
+        return "CLOSE"
+
+    def print_espion(self):
+        for action in self.liste_actions:
+            fprint(action.libelle, end="")
+            if action.sub_menu:
+                fprint(f"IsOpen({action.sub_menu.is_open()})", end="")
+            fprint()
 
     def contains(self, position) -> bool:
         return self.surf.get_rect().collidepoint(position)
@@ -429,6 +485,10 @@ class Menu(SubMenu):
             return 
 
         self.show = False
+        if self.parent:
+            # fprint("self.parent.opened_sub_menu = None", self.titre)
+            self.parent.opened_sub_menu = None
+
         for action in self.liste_actions:
             if action.sub_menu and action.sub_menu.is_open():
                 action.sub_menu.close()
@@ -444,13 +504,35 @@ def bloc_bleu(menu) -> None:
 
     menu.close()
 
-    sub_menu = Menu()
-    sub_menu.add(Action("Sous menu 1", "", "actif", print, "Sous menu 1"))
-    sub_menu.add(Action("Sous menu 2", "", "actif"))
-    sub_menu.add(Action("Sous menu 3", "", "actif"))
-    sub_menu.add(Action("", "", "separateur"))
-    sub_menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
-    sub_menu.compute()
+    sub_menu1 = Menu("SsMenuBleu1")
+    sub_menu1.add(Action("Sous menu 11", "", "actif", fprint, "Sous menu 11"))
+    sub_menu1.add(Action("Sous menu 12", "", "actif"))
+    sub_menu1.add(Action("Sous menu 13", "", "actif"))
+    sub_menu1.add(Action("", "", "separateur"))
+    sub_menu1.add(Action("Sous menu 14", "", "actif"))
+    sub_menu1.add(Action("Sous menu 15", "", "actif"))
+    sub_menu1.add(Action("Sous menu 16", "", "actif"))
+    sub_menu1.add(Action("Sous menu 17", "", "actif"))
+    sub_menu1.add(Action("", "", "separateur"))
+    sub_menu1.add(Action("Sous menu 18", "", "actif"))
+    sub_menu1.add(Action("Sous menu 19", "", "actif"))
+    sub_menu1.add(Action("Sous menu 20", "", "actif"))
+    sub_menu1.add(Action("", "", "separateur"))
+    sub_menu1.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
+    sub_menu1.compute()
+
+    sub_menu2 = Menu("SsMenuBleu2")
+    sub_menu2.add(Action("Sous menu 21", "", "actif", fprint, "Sous menu 21"))
+    sub_menu2.add(Action("Sous menu 22", "", "actif"))
+    sub_menu2.add(Action("Sous menu 23", "", "actif"))
+    sub_menu2.add(Action("", "", "separateur"))
+    sub_menu2.add(Action("Sous menu 24", "", "actif"))
+    sub_menu2.add(Action("Sous menu 25", "", "actif"))
+    sub_menu2.add(Action("Sous menu 26", "", "actif"))
+    sub_menu2.add(Action("Sous menu 27", "", "actif"))
+    sub_menu2.add(Action("", "", "separateur"))
+    sub_menu2.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
+    sub_menu2.compute()
 
     menu.clear()
     menu.add(Action("Go to Definition(Jedi)", "Ctrl+Shift+G", "actif"))
@@ -469,9 +551,9 @@ def bloc_bleu(menu) -> None:
     menu.add(Action("Select All", "Ctrl+A", "actif"))
     menu.add(Action("", "", "separateur"))
     menu.add(Action("Open Containing Folder", "", "actif"))
-    menu.add(Action("Copy File Path", "", "actif"))
+    menu.add(Action("Copy File Path", ">", "actif", sub_menu1))
     menu.add(Action("Reveal in Side Bar", "", "actif"))
-    menu.add(Action("Behave Toolkit", ">", "actif", sub_menu))
+    menu.add(Action("Behave Toolkit", ">", "actif", sub_menu2))
     menu.add(Action("", "", "separateur"))
     menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
 
@@ -488,7 +570,7 @@ def bloc_blanc(menu) -> None:
     menu.add(Action("Déplacer", "", "inactif"))
     menu.add(Action("Taille", "", "actif"))
     menu.add(Action("Réduire", "", "actif"))
-    menu.add(Action("Agrandir", "", "actif", print, "Agridissement"))
+    menu.add(Action("Agrandir", "", "actif", fprint, "Agridissement"))
     menu.add(Action("", "", "separateur"))
     menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "blanc"))
 
@@ -592,14 +674,11 @@ def main() -> None:
     screen = pygame.display.set_mode((1360, 820), flags=pygame.RESIZABLE + pygame.SRCALPHA)
 
     Menu.init(screen)
-    menu = Menu()
+    menu = Menu("Menu")
     no_bloc(menu)
 
     screen_size = screen.get_rect()
     clock = pygame.time.Clock()
-
-    pos_x: int = 0
-    pos_y: int = 0
 
     while Variable.Running:
         clock.tick(60)
@@ -659,7 +738,6 @@ def main() -> None:
                         no_bloc(menu)
 
                     menu.activate(Mouse.get_pos())
-                    pos_x, pos_y = Mouse.get_pos()
 
             elif event.type in [pygame.MOUSEBUTTONDOWN]:
                 pass
