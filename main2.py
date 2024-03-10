@@ -131,6 +131,7 @@ class Menu(SubMenu):
     opened_sub_menu: SubMenu 
 
     index: int = -1
+    selected_index: int = -1
     old_index: int = -1
 
     alpha: int = 0
@@ -271,6 +272,7 @@ class Menu(SubMenu):
         # 
         self.show = True
         self.index = -1
+        self.selected_index = -1
         self.old_index = -1
         self.time_for_action = 0
 
@@ -280,6 +282,7 @@ class Menu(SubMenu):
 
     def draw(self, mouse_pos) -> None:
         if not self.is_open() or len(self.liste_actions) == 0:
+            # Menu non ouvert ou vide
             return
 
         # remplissage de la couleur de fond du menu
@@ -309,6 +312,7 @@ class Menu(SubMenu):
             # ToDo : a deplacer pour prendre en compte le sous-menu
             # 
             self.index = self.get_index(mouse_pos[1])
+            self.selected_index = self.index
             select_position = self.get_position_from_index(self.index)
 
             match self.liste_actions[self.index].etat:
@@ -321,6 +325,8 @@ class Menu(SubMenu):
             # Aucun element de selectionne dans le menu
             self.index = -1
 
+        # fprint(self.titre, self.index, self.selected_index, end=" | ")
+
         # gestion de l'ouverture/fermeture automatique des sous-menus
         if self.index != self.old_index:
 
@@ -328,7 +334,8 @@ class Menu(SubMenu):
                     self.liste_actions[self.old_index].sub_menu and
                     self.liste_actions[self.old_index].sub_menu.is_open()):
                 # Force la selection du Sous-Menu
-                self.index = self.old_index
+                # self.index = self.old_index
+                pass
             else:
                 self.old_index = self.index
                 
@@ -390,8 +397,6 @@ class Menu(SubMenu):
                 # Affichage du raccourci si existant
                 if action.sub_menu:
                     rac = self.fontsymbole.render(u"\u276F", True, couleur)
-                    # if action.sub_menu.is_open():
-                    #     self.opened_sub_menu = action.sub_menu
                 else:
                     rac = self.font24.render(action.raccourci, True, couleur)
 
@@ -414,25 +419,30 @@ class Menu(SubMenu):
             new_mouse_pos: tuple = Mouse.get_diff(self.opened_sub_menu.pos_init)
             self.opened_sub_menu.draw(new_mouse_pos)
 
+        # fprint(f"{self.titre}({self.index})")
+        # if not self.parent:
+        #     fprint()
+
     def click(self):
-        # fprint(">", f"{self.titre}({self.index})", self.liste_actions[self.index].etat)
+        result: str = ""
+        # fprint(">", f"{self.titre}({self.index})", self.liste_actions[self.index].etat, end="")
+        if self.opened_sub_menu and self.opened_sub_menu.selected_index > -1:
+            # fprint(" *", end="")
+            result = self.opened_sub_menu.click()
+
+        # fprint()
+
         if self.index > -1:
             # fprint(f"1-{self.titre}({self.index})")
             if self.liste_actions[self.index].etat in ["inactif", "separateur"]:
-                return
+                return "INSEP"
 
             # fprint(f"2-{self.titre}({self.index})", self.liste_actions[self.index].raccourci)
-            # if self.liste_actions[self.index].raccourci == ">":
             if self.liste_actions[self.index].is_sub_menu():
                 # Sous-menu
                 # fprint(f"3-{self.titre}({self.index})")
                 if self.liste_actions[self.index].sub_menu.is_open():
-                    # fprint(f"4-{self.titre}({self.index})", self.liste_actions[self.index].sub_menu.index)
-                    if self.liste_actions[self.index].sub_menu.click() == "CLOSE":
-                        self.close()
-                        return "CLOSE"
-                    else:
-                        return
+                    return "OPEN"
 
                 # fprint(f"5-{self.titre}({self.index}) (activate submenu)")
                 dx, dy = self.pos_init
@@ -440,9 +450,17 @@ class Menu(SubMenu):
                     (dx+self.surf.get_width()-8, 
                      dy+self.get_position_from_index(self.index)))
 
-                return
+                return "ACTIVATE"
 
-        self.close()
+            else:
+                result = "CLOSE"
+        else:
+            if self.selected_index < 0:
+                result = "CLOSE"
+
+        # fprint("Result before close():", result)
+        if result == "CLOSE":
+            self.close()
 
         # fprint(f"6-{self.titre}({self.index}) (CLOSE)")
         if self.index < 0:
@@ -504,13 +522,21 @@ def bloc_bleu(menu) -> None:
 
     menu.close()
 
+    menu_lvl3 = Menu("SsMenuBleuLvl3")
+    menu_lvl3.add(Action("Sous menu 31", "", "actif", fprint, "Sous menu 31"))
+    menu_lvl3.add(Action("Sous menu 32", "", "actif", fprint, "Sous menu 32"))
+    menu_lvl3.add(Action("Sous menu 33", "", "actif", fprint, "Sous menu 33"))
+    menu_lvl3.add(Action("", "", "separateur"))
+    menu_lvl3.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
+    menu_lvl3.compute()
+
     sub_menu1 = Menu("SsMenuBleu1")
     sub_menu1.add(Action("Sous menu 11", "", "actif", fprint, "Sous menu 11"))
     sub_menu1.add(Action("Sous menu 12", "", "actif"))
     sub_menu1.add(Action("Sous menu 13", "", "actif"))
     sub_menu1.add(Action("", "", "separateur"))
     sub_menu1.add(Action("Sous menu 14", "", "actif"))
-    sub_menu1.add(Action("Sous menu 15", "", "actif"))
+    sub_menu1.add(Action("Gestion du fenetrage", ">", "actif", menu_lvl3))
     sub_menu1.add(Action("Sous menu 16", "", "actif"))
     sub_menu1.add(Action("Sous menu 17", "", "actif"))
     sub_menu1.add(Action("", "", "separateur"))
