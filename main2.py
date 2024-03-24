@@ -2,7 +2,6 @@ import pygame
 
 from typing import Callable, Union
 from functools import partial
-# import time
 
 
 class Variable:
@@ -32,12 +31,12 @@ class Mouse:
         return Mouse.pos_x, Mouse.pos_y
 
     @classmethod
-    def get_diff(self, x_or_coord: int | tuple | list, y: int | None = None) -> tuple[int, int]:
+    def get_diff(self, x_or_coord, y: int | None = None) -> tuple[int, int]:
         if isinstance(x_or_coord, int) and y is not None:
             return Mouse.pos_x - x_or_coord, Mouse.pos_y - y
 
         if type(x_or_coord) in [tuple, list]:
-            return Mouse.pos_x - x_or_coord[0], Mouse.pos_y - x_or_coord[1]  # type: ignore[index]
+            return Mouse.pos_x - x_or_coord[0], Mouse.pos_y - x_or_coord[1]
 
         raise Exception("Le type des parametres n'est pas correct.")
 
@@ -63,7 +62,7 @@ class Action:
     raccourci: str
     etat: str
     fonction: Callable | None
-    sub_menu: SubMenu = None
+    sub_menu: SubMenu | None = None
 
     def __init__(self, 
             libelle: str,
@@ -128,7 +127,7 @@ class Menu(SubMenu):
     animation: bool = False
 
     parent: SubMenu | None = None
-    opened_sub_menu: SubMenu 
+    opened_sub_menu: SubMenu | None
 
     index: int = -1
     selected_index: int = -1
@@ -267,9 +266,6 @@ class Menu(SubMenu):
             pos_init[1] = self.screen.get_height() - self.surf.get_height() - self.taille_ombre
 
         self.pos_init = pos_init[0], pos_init[1]
-        # 
-        # ToDo refaire le calcul sans passer par Mouse()
-        # 
         self.show = True
         self.index = -1
         self.selected_index = -1
@@ -277,7 +273,6 @@ class Menu(SubMenu):
         self.time_for_action = 0
 
         if self.parent:
-            # fprint("parent.submenu=self", self.parent, self.titre)
             self.parent.opened_sub_menu = self
 
     def draw(self, mouse_pos) -> None:
@@ -313,19 +308,18 @@ class Menu(SubMenu):
             # 
             self.index = self.get_index(mouse_pos[1])
             self.selected_index = self.index
-            select_position = self.get_position_from_index(self.index)
-
-            match self.liste_actions[self.index].etat:
-                case "actif":
-                    self.surf.blit(self.selecta, (2, select_position))
-                case "inactif":
-                    self.surf.blit(self.selecti, (2, select_position))
-
         else:
             # Aucun element de selectionne dans le menu
             self.index = -1
 
-        # fprint(self.titre, self.index, self.selected_index, end=" | ")
+        if self.selected_index > -1 and self.opened_sub_menu or self.index > -1:
+            select_position = self.get_position_from_index(self.selected_index)
+
+            match self.liste_actions[self.selected_index].etat:
+                case "actif":
+                    self.surf.blit(self.selecta, (2, select_position))
+                case "inactif":
+                    self.surf.blit(self.selecti, (2, select_position))
 
         # gestion de l'ouverture/fermeture automatique des sous-menus
         if self.index != self.old_index:
@@ -419,22 +413,21 @@ class Menu(SubMenu):
             new_mouse_pos: tuple = Mouse.get_diff(self.opened_sub_menu.pos_init)
             self.opened_sub_menu.draw(new_mouse_pos)
 
-        # fprint(f"{self.titre}({self.index})")
-        # if not self.parent:
-        #     fprint()
+        return
 
     def click(self):
         result: str = ""
-        # fprint(">", f"{self.titre}({self.index})", self.liste_actions[self.index].etat, end="")
-        if self.opened_sub_menu and self.opened_sub_menu.selected_index > -1:
-            # fprint(" *", end="")
+        # fprint(f"{self.titre}({self.index})", self.liste_actions[self.index].etat, end="")
+        if self.index < 0 and self.opened_sub_menu and self.opened_sub_menu.selected_index > -1:
+            # fprint(" > ", end="")
             result = self.opened_sub_menu.click()
-
         # fprint()
 
-        if self.index > -1:
+        # fprint(self.titre, ", After Submenu() result:", result, " selectedidx:", self.selected_index)
+        if result in ("", "OUT") and self.index > -1:
             # fprint(f"1-{self.titre}({self.index})")
             if self.liste_actions[self.index].etat in ["inactif", "separateur"]:
+                # fprint(self.titre, ", Return INSEP")
                 return "INSEP"
 
             # fprint(f"2-{self.titre}({self.index})", self.liste_actions[self.index].raccourci)
@@ -442,6 +435,7 @@ class Menu(SubMenu):
                 # Sous-menu
                 # fprint(f"3-{self.titre}({self.index})")
                 if self.liste_actions[self.index].sub_menu.is_open():
+                    # fprint(self.titre, ", Return OPEN")
                     return "OPEN"
 
                 # fprint(f"5-{self.titre}({self.index}) (activate submenu)")
@@ -450,27 +444,38 @@ class Menu(SubMenu):
                     (dx+self.surf.get_width()-8, 
                      dy+self.get_position_from_index(self.index)))
 
+                # fprint(self.titre, ", Return Activate")
                 return "ACTIVATE"
 
             else:
                 result = "CLOSE"
         else:
-            if self.selected_index < 0:
-                result = "CLOSE"
+            if result == "" and self.index < 0:
+                if self.parent:
+                    # fprint(self.titre, ", Result OUT")
+                    result = "OUT"
+                else:
+                    # fprint(self.titre, ", Result Close")
+                    result = "CLOSE"
 
-        # fprint("Result before close():", result)
+        # fprint(self.titre, ", Result before close():", result, " selectedidx:", self.selected_index)
         if result == "CLOSE":
             self.close()
 
-        # fprint(f"6-{self.titre}({self.index}) (CLOSE)")
         if self.index < 0:
-            return "CLOSE"
+            if self.opened_sub_menu is None:
+                # fprint(f"6-{self.titre}({self.index}|{self.selected_index}) (CLOSE)")
+                return "CLOSE"
+
+            # fprint(self.titre, ", Return empty")
+            return ""
 
         # fprint(f"7-{self.titre}({self.index}) (FUNCTION?)")
         action = self.liste_actions[self.index]
         if action.fonction:
             action.fonction()
 
+        # fprint(f"8-{self.titre}({self.index}|{self.selected_index}) (CLOSE)")
         return "CLOSE"
 
     def print_espion(self):
@@ -504,7 +509,6 @@ class Menu(SubMenu):
 
         self.show = False
         if self.parent:
-            # fprint("self.parent.opened_sub_menu = None", self.titre)
             self.parent.opened_sub_menu = None
 
         for action in self.liste_actions:
@@ -532,30 +536,30 @@ def bloc_bleu(menu) -> None:
 
     sub_menu1 = Menu("SsMenuBleu1")
     sub_menu1.add(Action("Sous menu 11", "", "actif", fprint, "Sous menu 11"))
-    sub_menu1.add(Action("Sous menu 12", "", "actif"))
-    sub_menu1.add(Action("Sous menu 13", "", "actif"))
+    sub_menu1.add(Action("Sous menu 12", "", "actif", fprint, "Sous menu 12"))
+    sub_menu1.add(Action("Sous menu 13", "", "actif", fprint, "Sous menu 13"))
     sub_menu1.add(Action("", "", "separateur"))
-    sub_menu1.add(Action("Sous menu 14", "", "actif"))
+    sub_menu1.add(Action("Sous menu 14", "", "actif", fprint, "Sous menu 14"))
     sub_menu1.add(Action("Gestion du fenetrage", ">", "actif", menu_lvl3))
-    sub_menu1.add(Action("Sous menu 16", "", "actif"))
-    sub_menu1.add(Action("Sous menu 17", "", "actif"))
+    sub_menu1.add(Action("Sous menu 16", "", "actif", fprint, "Sous menu 15"))
+    sub_menu1.add(Action("Sous menu 17", "", "actif", fprint, "Sous menu 16"))
     sub_menu1.add(Action("", "", "separateur"))
-    sub_menu1.add(Action("Sous menu 18", "", "actif"))
-    sub_menu1.add(Action("Sous menu 19", "", "actif"))
-    sub_menu1.add(Action("Sous menu 20", "", "actif"))
+    sub_menu1.add(Action("Sous menu 18", "", "actif", fprint, "Sous menu 17"))
+    sub_menu1.add(Action("Sous menu 19", "", "actif", fprint, "Sous menu 18"))
+    sub_menu1.add(Action("Sous menu 20", "", "actif", fprint, "Sous menu 19"))
     sub_menu1.add(Action("", "", "separateur"))
     sub_menu1.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
     sub_menu1.compute()
 
     sub_menu2 = Menu("SsMenuBleu2")
     sub_menu2.add(Action("Sous menu 21", "", "actif", fprint, "Sous menu 21"))
-    sub_menu2.add(Action("Sous menu 22", "", "actif"))
-    sub_menu2.add(Action("Sous menu 23", "", "actif"))
+    sub_menu2.add(Action("Sous menu 22", "", "actif", fprint, "Sous menu 22"))
+    sub_menu2.add(Action("Sous menu 23", "", "actif", fprint, "Sous menu 23"))
     sub_menu2.add(Action("", "", "separateur"))
-    sub_menu2.add(Action("Sous menu 24", "", "actif"))
-    sub_menu2.add(Action("Sous menu 25", "", "actif"))
-    sub_menu2.add(Action("Sous menu 26", "", "actif"))
-    sub_menu2.add(Action("Sous menu 27", "", "actif"))
+    sub_menu2.add(Action("Sous menu 24", "", "actif", fprint, "Sous menu 24"))
+    sub_menu2.add(Action("Sous menu 25", "", "actif", fprint, "Sous menu 25"))
+    sub_menu2.add(Action("Sous menu 26", "", "actif", fprint, "Sous menu 26"))
+    sub_menu2.add(Action("Sous menu 27", "", "actif", fprint, "Sous menu 27"))
     sub_menu2.add(Action("", "", "separateur"))
     sub_menu2.add(Action("Fermer", "Ctrl-W", "actif", toggle, "bleu"))
     sub_menu2.compute()
@@ -749,6 +753,7 @@ def main() -> None:
 
                 if menu.is_open() and (event.button == 1 or 
                         menu.contains(Mouse.get_diff(menu.pos_init))):
+                    # fprint("\nMouse.click()")
                     menu.click()
 
                 elif event.button == 3:
