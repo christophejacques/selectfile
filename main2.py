@@ -3,6 +3,8 @@ import pygame
 from typing import Callable, Union
 from functools import partial
 
+couleurs: tuple[str, ...] = ("bleu", "blanc", "rouge", "vert")
+
 
 class Variable:
     Running = True
@@ -11,6 +13,7 @@ class Variable:
     Blanc: bool = True
     Rouge: bool = True
     Vert: bool = True
+    taille: dict = {color: 1 for color in couleurs}
 
 
 class Mouse:
@@ -192,12 +195,12 @@ class Menu(SubMenu):
 
         # ombre en bas du menu
         self.surfo1 = pygame.Surface((self.width-self.taille_ombre, self.taille_ombre), 0, 24)
-        self.surfo1.set_alpha(96)
+        self.surfo1.set_alpha(160)
         self.surfo1.fill(0)
 
         # ombre a droite du menu
         self.surfo2 = pygame.Surface((self.taille_ombre, self.height), 0, 24)
-        self.surfo2.set_alpha(96)
+        self.surfo2.set_alpha(160)
         self.surfo2.fill(0)
 
         # Surface de la selection active 
@@ -421,7 +424,7 @@ class Menu(SubMenu):
         if self.index < 0 and self.opened_sub_menu and self.opened_sub_menu.selected_index > -1:
             # fprint(" > ", end="")
             result = self.opened_sub_menu.click()
-        # fprint()
+        # fprint(f"#{self.titre}({result})")
 
         # fprint(self.titre, ", After Submenu() result:", result, " selectedidx:", self.selected_index)
         if result in ("", "OUT") and self.index > -1:
@@ -468,7 +471,7 @@ class Menu(SubMenu):
                 return "CLOSE"
 
             # fprint(self.titre, ", Return empty")
-            return ""
+            return result
 
         # fprint(f"7-{self.titre}({self.index}) (FUNCTION?)")
         action = self.liste_actions[self.index]
@@ -565,6 +568,10 @@ def bloc_bleu(menu) -> None:
     sub_menu2.compute()
 
     menu.clear()
+    if Variable.taille["bleu"]:
+        menu.add(Action("Minimiser", "", "actif", minimizeRestaure, "bleu"))
+    else:
+        menu.add(Action("Restaurer", "", "actif", minimizeRestaure, "bleu"))
     menu.add(Action("Go to Definition(Jedi)", "Ctrl+Shift+G", "actif"))
     menu.add(Action("Find usage (Jedi)", "Alt+Shift+F", "actif"))
     menu.add(Action("Show Docstring (Jedi)", "Ctrl+Alt+D", "actif"))
@@ -596,7 +603,13 @@ def bloc_blanc(menu) -> None:
         return
 
     menu.clear()
-    menu.add(Action("Restaurer", "", "inactif"))
+
+    restaure: str = "inactif" if Variable.taille["blanc"] else "actif"
+    minimize: str = "actif" if Variable.taille["blanc"] else "inactif"
+
+    menu.add(Action("Restaurer", "", restaure, minimizeRestaure, "blanc"))
+    menu.add(Action("Minimiser", "", minimize, minimizeRestaure, "blanc"))
+
     menu.add(Action("Déplacer", "", "inactif"))
     menu.add(Action("Taille", "", "actif"))
     menu.add(Action("Réduire", "", "actif"))
@@ -613,7 +626,13 @@ def bloc_rouge(menu) -> None:
         return
 
     menu.clear()
-    menu.add(Action("Restaurer", "", "inactif"))
+
+    restaure: str = "inactif" if Variable.taille["rouge"] else "actif"
+    minimize: str = "actif" if Variable.taille["rouge"] else "inactif"
+
+    menu.add(Action("Restaurer", "", restaure, minimizeRestaure, "rouge"))
+    menu.add(Action("Minimiser", "", minimize, minimizeRestaure, "rouge"))
+
     menu.add(Action("Déplacer", "", "actif"))
     menu.add(Action("", "", "separateur"))
     menu.add(Action("Fermer", "Ctrl-W", "actif", toggle, "rouge"))
@@ -627,7 +646,12 @@ def bloc_vert(menu) -> None:
         return
 
     menu.clear()
-    menu.add(Action("Restaurer", "", "inactif"))
+    restaure: str = "inactif" if Variable.taille["vert"] else "actif"
+    minimize: str = "actif" if Variable.taille["vert"] else "inactif"
+
+    menu.add(Action("Restaurer", "", restaure, minimizeRestaure, "vert"))
+    menu.add(Action("Minimiser", "", minimize, minimizeRestaure, "vert"))
+
     menu.add(Action("Déplacer", "", "actif"))
     menu.add(Action("", "", "separateur"))
     menu.add(Action("Fermer", "", "actif", toggle, "vert"))
@@ -640,25 +664,49 @@ def no_bloc(menu) -> None:
     if Variable.Menu == "aucun":
         return
 
+    reduire_tout: bool = False
+    restaurer_tout: bool = False
     separateur: bool = False
+
     menu.clear()
     nb_fermer: int = 0
     if not Variable.Bleu:
         menu.add(Action("Ouvrir Bleu", "", "actif", toggle, "bleu"))
         separateur = True
         nb_fermer += 1
+    else:
+        reduire_tout = Variable.taille.get("bleu", 0) == 1
+        restaurer_tout = Variable.taille.get("bleu", 0) == 0
+
     if not Variable.Blanc:
         menu.add(Action("Ouvrir Blanc", "", "actif", toggle, "blanc"))
         separateur = True
         nb_fermer += 1
+    else:
+        reduire_tout = reduire_tout or Variable.taille.get("blanc", 0) == 1
+        restaurer_tout = restaurer_tout or Variable.taille.get("blanc", 0) == 0
+
     if not Variable.Rouge:
         menu.add(Action("Ouvrir Rouge", "", "actif", toggle, "rouge"))
         separateur = True
         nb_fermer += 1
+    else:
+        reduire_tout = reduire_tout or Variable.taille.get("rouge", 0) == 1
+        restaurer_tout = restaurer_tout or Variable.taille.get("rouge", 0) == 0
+
     if not Variable.Vert:
         menu.add(Action("Ouvrir Vert", "", "actif", toggle, "vert"))
         separateur = True
         nb_fermer += 1
+    else:
+        reduire_tout = reduire_tout or Variable.taille.get("vert", 0) == 1
+        restaurer_tout = restaurer_tout or Variable.taille.get("vert", 0) == 0
+
+    if reduire_tout:
+        menu.add(Action("Réduire Tout", "", "actif", minimizeRestaure, "reduire"))
+
+    if restaurer_tout:
+        menu.add(Action("Restaurer Tout", "", "actif", minimizeRestaure, "restaure"))
 
     if separateur:
         menu.add(Action("", "", "separateur"))
@@ -673,6 +721,24 @@ def no_bloc(menu) -> None:
 
     menu.compute()
     Variable.Menu = "aucun"
+
+
+def minimizeRestaure(couleur: str) -> None:
+    if couleur == "reduire":
+        # force l'affichage minimal des objets
+        for color in Variable.taille:
+            Variable.taille[color] = 0
+
+    elif couleur == "restaure":
+        # force l'affichage complet des objets
+        for color in Variable.taille:
+            Variable.taille[color] = 1
+
+    else:
+        Variable.taille[couleur] = 1 - Variable.taille.get(couleur, 1)
+
+    # Force la mise a jour du Menu même si on ne change pas le curseur souris d'objet
+    Variable.Menu = ""
 
 
 def toggle(couleur: str) -> None:
@@ -720,13 +786,32 @@ def main() -> None:
         screen.fill((50, 150, 100))
 
         if Variable.Bleu:
-            bleu = pygame.draw.rect(screen, "blue", (100, 200, 250, 400))
+            if Variable.taille.get("bleu", 0):
+                posy, dy = 200, 400
+            else:
+                posy, dy = 780, 30
+            bleu = pygame.draw.rect(screen, "blue", (100, posy, 250, dy))
+
         if Variable.Blanc:
-            blanc = pygame.draw.rect(screen, "white", (400, 200, 250, 300))
+            if Variable.taille.get("blanc", 0):
+                posy, dy = 200, 300
+            else:
+                posy, dy = 780, 30
+            blanc = pygame.draw.rect(screen, "white", (400, posy, 250, dy))
+
         if Variable.Rouge:
-            rouge = pygame.draw.rect(screen, "red", (700, 200, 250, 300))
+            if Variable.taille.get("rouge", 0):
+                posy, dy = 200, 300
+            else:
+                posy, dy = 780, 30
+            rouge = pygame.draw.rect(screen, "red", (700, posy, 250, dy))
+
         if Variable.Vert:
-            vert = pygame.draw.rect(screen, "green", (1000, 200, 300, 300))
+            if Variable.taille.get("vert", 0):
+                posy, dy = 200, 300
+            else:
+                posy, dy = 780, 30
+            vert = pygame.draw.rect(screen, "green", (1000, posy, 300, dy))
 
         menu.draw(Mouse.get_diff(menu.pos_init))
         pygame.display.update()
