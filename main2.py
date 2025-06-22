@@ -1,6 +1,6 @@
 import pygame
 
-from typing import Callable, Union
+from typing import Callable, Union, Self
 from functools import partial
 
 couleurs: tuple[str, ...] = ("bleu", "blanc", "rouge", "vert")
@@ -21,20 +21,20 @@ class Mouse:
     pos_y: int = 0
 
     @classmethod
-    def set_pos(self, x_or_coord: Union[int, tuple, list], y: int | None = None) -> None:
+    def set_pos(self, x_or_coord, y: Union[int, None] = None) -> None:
         if isinstance(x_or_coord, int) and y is not None:
             Mouse.pos_x = x_or_coord
             Mouse.pos_y = y
 
         elif type(x_or_coord) in [tuple, list]:
-            Mouse.pos_x, Mouse.pos_y = x_or_coord  # type: ignore[misc]
+            Mouse.pos_x, Mouse.pos_y = x_or_coord
 
     @classmethod
     def get_pos(self) -> tuple[int, int]:
         return Mouse.pos_x, Mouse.pos_y
 
     @classmethod
-    def get_diff(self, x_or_coord, y: int | None = None) -> tuple[int, int]:
+    def get_diff(self, x_or_coord, y: Union[int, None] = None) -> tuple[int, int]:
         if isinstance(x_or_coord, int) and y is not None:
             return Mouse.pos_x - x_or_coord, Mouse.pos_y - y
 
@@ -44,13 +44,13 @@ class Mouse:
         raise Exception("Le type des parametres n'est pas correct.")
 
 
-def fprint(*args, **kwargs):
+def fprint(*args, **kwargs) -> None:
     print(*args, **kwargs, flush=True)
 
 
 class SubMenu:
-    parent: object
-    sub_menu: object
+    parent: Self
+    sub_menu: Self
     opened_sub_menu: object
 
     pos_init: tuple
@@ -65,7 +65,7 @@ class Action:
     raccourci: str
     etat: str
     fonction: Callable | None
-    sub_menu: SubMenu | None = None
+    sub_menu: SubMenu = None
 
     def __init__(self, 
             libelle: str,
@@ -100,15 +100,21 @@ class Action:
     def set_index(self, index: int):
         self.index = index
 
-    def set_sub_menu_parent(self, parent):
+    def set_sub_menu_parent(self, parent: SubMenu) -> None:
         self.sub_menu.parent = parent
 
     def is_sub_menu(self) -> bool:
         return self.raccourci == ">"
 
+    def is_sub_menu_open(self) -> bool:
+        if self.sub_menu:
+            return self.sub_menu.is_open()
+
+        return False
+
     def exec(self):
         if self.fonction:
-            self.fonction(*self.args, **self.kwargs)
+            self.fonction()
 
 
 class Menu(SubMenu):
@@ -173,7 +179,6 @@ class Menu(SubMenu):
         new_width: int
         if action.raccourci:
             new_width = 6+3*self.goutiere_size + self.border_size + 10 + width_lib + width_rac 
-            # if action.raccourci == ">":
             if action.is_sub_menu():
                 action.set_sub_menu_parent(self)
         else:
@@ -278,7 +283,7 @@ class Menu(SubMenu):
         if self.parent:
             self.parent.opened_sub_menu = self
 
-    def draw(self, mouse_pos) -> None:
+    def draw(self, mouse_pos: tuple[int, int]) -> None:
         if not self.is_open() or len(self.liste_actions) == 0:
             # Menu non ouvert ou vide
             return
@@ -304,8 +309,8 @@ class Menu(SubMenu):
 
         # recherche de l'element selectionne dans le menu
         if (self.border_size < mouse_pos[1] < self.surf.get_height()-self.border_size and 
-                self.surf.get_rect().collidepoint(mouse_pos)):
-
+                self.contains(mouse_pos)):
+            # self.surf.get_rect().collidepoint(mouse_pos))
             # 
             # ToDo : a deplacer pour prendre en compte le sous-menu
             # 
@@ -475,8 +480,7 @@ class Menu(SubMenu):
 
         # fprint(f"7-{self.titre}({self.index}) (FUNCTION?)")
         action = self.liste_actions[self.index]
-        if action.fonction:
-            action.fonction()
+        action.exec()
 
         # fprint(f"8-{self.titre}({self.index}|{self.selected_index}) (CLOSE)")
         return "CLOSE"
@@ -488,7 +492,7 @@ class Menu(SubMenu):
                 fprint(f"IsOpen({action.sub_menu.is_open()})", end="")
             fprint()
 
-    def contains(self, position) -> bool:
+    def contains(self, position: tuple[int, int]) -> bool:
         return self.surf.get_rect().collidepoint(position)
 
     def is_open(self) -> bool:
@@ -496,14 +500,14 @@ class Menu(SubMenu):
 
     def is_sub_menu_open(self) -> bool:
         for action in self.liste_actions:
-            if action.sub_menu and action.sub_menu.is_open():
+            if action.is_sub_menu_open():
                 return True
 
         return False
 
     def close_sub_menu(self):
         for action in self.liste_actions:
-            if action.sub_menu and action.sub_menu.is_open():
+            if action.is_sub_menu_open():
                 action.sub_menu.close()
 
     def close(self):
@@ -514,9 +518,7 @@ class Menu(SubMenu):
         if self.parent:
             self.parent.opened_sub_menu = None
 
-        for action in self.liste_actions:
-            if action.sub_menu and action.sub_menu.is_open():
-                action.sub_menu.close()
+        self.close_sub_menu()
 
 
 def end_run():
@@ -670,35 +672,20 @@ def no_bloc(menu) -> None:
 
     menu.clear()
     nb_fermer: int = 0
-    if not Variable.Bleu:
-        menu.add(Action("Ouvrir Bleu", "", "actif", toggle, "bleu"))
-        separateur = True
-        nb_fermer += 1
-    else:
+
+    if Variable.Bleu:
         reduire_tout = Variable.taille.get("bleu", 0) == 1
         restaurer_tout = Variable.taille.get("bleu", 0) == 0
 
-    if not Variable.Blanc:
-        menu.add(Action("Ouvrir Blanc", "", "actif", toggle, "blanc"))
-        separateur = True
-        nb_fermer += 1
-    else:
+    if Variable.Blanc:
         reduire_tout = reduire_tout or Variable.taille.get("blanc", 0) == 1
         restaurer_tout = restaurer_tout or Variable.taille.get("blanc", 0) == 0
 
-    if not Variable.Rouge:
-        menu.add(Action("Ouvrir Rouge", "", "actif", toggle, "rouge"))
-        separateur = True
-        nb_fermer += 1
-    else:
+    if Variable.Rouge:
         reduire_tout = reduire_tout or Variable.taille.get("rouge", 0) == 1
         restaurer_tout = restaurer_tout or Variable.taille.get("rouge", 0) == 0
 
-    if not Variable.Vert:
-        menu.add(Action("Ouvrir Vert", "", "actif", toggle, "vert"))
-        separateur = True
-        nb_fermer += 1
-    else:
+    if Variable.Vert:
         reduire_tout = reduire_tout or Variable.taille.get("vert", 0) == 1
         restaurer_tout = restaurer_tout or Variable.taille.get("vert", 0) == 0
 
@@ -707,6 +694,29 @@ def no_bloc(menu) -> None:
 
     if restaurer_tout:
         menu.add(Action("Restaurer Tout", "", "actif", minimizeRestaure, "restaure"))
+
+    if reduire_tout or restaurer_tout:
+        menu.add(Action("", "", "separateur"))
+
+    if not Variable.Bleu:
+        menu.add(Action("Ouvrir Bleu", "", "actif", toggle, "bleu"))
+        separateur = True
+        nb_fermer += 1
+
+    if not Variable.Blanc:
+        menu.add(Action("Ouvrir Blanc", "", "actif", toggle, "blanc"))
+        separateur = True
+        nb_fermer += 1
+
+    if not Variable.Rouge:
+        menu.add(Action("Ouvrir Rouge", "", "actif", toggle, "rouge"))
+        separateur = True
+        nb_fermer += 1
+
+    if not Variable.Vert:
+        menu.add(Action("Ouvrir Vert", "", "actif", toggle, "vert"))
+        separateur = True
+        nb_fermer += 1
 
     if separateur:
         menu.add(Action("", "", "separateur"))
